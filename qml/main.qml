@@ -20,6 +20,7 @@ ApplicationWindow {
         Keys.onDigit2Pressed: stack.currentIndex = 1
         Keys.onDigit3Pressed: stack.currentIndex = 2
         Keys.onDigit4Pressed: stack.currentIndex = 3
+        Keys.onPressed: function(event) { if (event.key === Qt.Key_G) guestController.toggle() }
 
         ColumnLayout {
             anchors.fill: parent
@@ -48,8 +49,15 @@ ApplicationWindow {
                 NowPlaying { }
                 Search { }
                 Lyrics { }
-                Rectangle { color: "transparent"; Text { anchors.centerIn: parent; color: Theme.fg; text: "Visualizer"; font.pixelSize: Theme.xl } }
+                Visualizer { }
             }
+        }
+
+        GuestOverlay {
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.margins: 40
+            z: 100
         }
     }
 }
