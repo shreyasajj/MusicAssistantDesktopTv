@@ -1204,7 +1204,7 @@ git commit -m "feat: embedded guest web server (search + add to queue)"
 
 ---
 
-## Task 10: QML theme + app shell
+## Task 10: QML theme + app shell ✅ DONE (commit 37dc717)
 
 **Files:**
 - Create: `qml/Theme.qml`, `qml/main.qml`
