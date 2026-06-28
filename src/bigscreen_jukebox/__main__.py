@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtCore import QObject, Signal, Property, Slot
-from .config import load_settings, default_config_path
+from .config import load_settings, save_settings, default_config_path
 from .ma_client import MaClient
 from .audio_analysis import AudioAnalyzer
 from .guest_server import GuestServer, local_ip
@@ -57,6 +57,20 @@ class GuestController(QObject):
     qrUri = Property(str, lambda s: s._qr, notify=enabledChanged)
 
 
+class SettingsController(QObject):
+    def __init__(self, settings):
+        super().__init__()
+        self._s = settings
+
+    @Slot(str, int, str, int)
+    def save(self, host, port, token, guest_port):
+        self._s.ma_host = host
+        self._s.ma_port = port
+        self._s.ma_token = token
+        self._s.guest_port = guest_port
+        save_settings(self._s, default_config_path())
+
+
 def main() -> int:
     app = QGuiApplication(sys.argv)
 
@@ -76,7 +90,9 @@ def main() -> int:
 
     engine = QQmlApplicationEngine()
     engine.addImportPath(str(QML_DIR))
-    for name, obj in (("maClient", ma), ("audioAnalyzer", analyzer), ("guestController", guest)):
+    settings_ctrl = SettingsController(settings)
+    for name, obj in (("maClient", ma), ("audioAnalyzer", analyzer),
+                      ("guestController", guest), ("settingsController", settings_ctrl)):
         engine.rootContext().setContextProperty(name, obj)
     engine.load(QML_DIR / "main.qml")
     if not engine.rootObjects():

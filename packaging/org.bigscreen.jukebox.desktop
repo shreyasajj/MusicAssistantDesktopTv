@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Bigscreen Jukebox
+Comment=Music Assistant on the big screen
+Exec=python -m bigscreen_jukebox
+Icon=multimedia-player
+Categories=AudioVideo;Audio;Player;
+X-KDE-FormFactor=mediacenter,tv

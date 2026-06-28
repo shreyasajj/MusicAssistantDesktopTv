@@ -7,7 +7,7 @@ ApplicationWindow {
     visible: true
     visibility: Window.FullScreen
     color: Theme.bg
-    property var tabs: ["Now Playing", "Search", "Lyrics", "Visualizer"]
+    property var tabs: ["Now Playing", "Search", "Lyrics", "Visualizer", "Settings"]
 
     Item {
         id: root
@@ -20,6 +20,7 @@ ApplicationWindow {
         Keys.onDigit2Pressed: stack.currentIndex = 1
         Keys.onDigit3Pressed: stack.currentIndex = 2
         Keys.onDigit4Pressed: stack.currentIndex = 3
+        Keys.onDigit5Pressed: stack.currentIndex = 4
         Keys.onPressed: function(event) { if (event.key === Qt.Key_G) guestController.toggle() }
 
         ColumnLayout {
@@ -50,6 +51,7 @@ ApplicationWindow {
                 Search { }
                 Lyrics { }
                 Visualizer { }
+                SettingsView { }
             }
         }
 
