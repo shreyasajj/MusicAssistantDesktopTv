@@ -21,8 +21,8 @@ and a keyboard.
 
 - See the current track (art, title, artist, progress) at a glance from the couch.
 - Search the music library and play / queue results using the on-screen keyboard.
-- Show **synced (karaoke) lyrics**, sourced exactly the way Music Assistant
-  itself does.
+- Show **synced (karaoke) lyrics** — primarily from Music Assistant's own
+  metadata, with a toggleable fallback to LRCLIB when MA has none.
 - A fullscreen visualizer that reacts to the actual beat of the playing audio.
 - Full playback transport control (play/pause, next, previous, seek, volume).
 - A guest mode that, when enabled, shows a join prompt (QR + URL) in the
@@ -45,7 +45,7 @@ and a keyboard.
 | Backend language | Python (PySide6) — reuses the official Music Assistant client library |
 | Data source | Direct to the Music Assistant **server WebSocket API** (`ws://<host>:8095/ws`) — no Home Assistant dependency |
 | Visualizer audio | Capture TV system audio via **PipeWire** loopback + FFT for true beat reactivity |
-| Lyrics | Read from Music Assistant's own track metadata (synced LRC when available) — same source/behaviour as MA |
+| Lyrics | Primary: Music Assistant's own track metadata (synced LRC when available). Fallback: query LRCLIB directly when MA returns none — toggleable setting, default **on** |
 | Guest mode | QR code → phone web page, served by an embedded web server in the app |
 | Guest additions | Straight to the active player's queue (no approval step) |
 | Layout | Separate tabbed full screens, switched by remote/keyboard |
@@ -90,7 +90,9 @@ Each component has one purpose, a defined interface, and is testable on its own.
   subscribes to events, and exposes state + actions to the rest of the app.
 - **Interface (state):** player list, active player's now-playing
   (art / title / artist / position / duration), current queue, search results,
-  lyrics (synced LRC lines when available, else plain text, else none).
+  lyrics (synced LRC lines when available, else plain text, else none). When MA
+  returns no lyrics and the LRCLIB fallback setting is on, it asks the Lyrics
+  resolver (component 6) for them.
 - **Interface (actions):** `search(query)`, `play_now(item)`,
   `add_to_queue(item)`, `play_pause()`, `next()`, `previous()`, `seek(pos)`,
   `set_volume(level)`, `select_player(id)`.
@@ -123,9 +125,20 @@ Each component has one purpose, a defined interface, and is testable on its own.
 - **Depends on:** App state objects and the audio analysis service.
 
 ### 5. Settings
-- **Does:** Stores MA host/port/token, default player, and guest-mode options;
-  provides a settings screen.
+- **Does:** Stores MA host/port/token, default player, guest-mode options, and
+  the LRCLIB lyrics-fallback toggle; provides a settings screen.
 - **Depends on:** local config storage.
+
+### 6. Lyrics resolver (LRCLIB fallback)
+- **Does:** When Music Assistant has no lyrics for the current track and the
+  fallback is enabled, queries LRCLIB by artist / title / album / duration and
+  returns synced (LRC) lyrics when available, else plain, else none.
+- **Interface:** `fetch(artist, title, album, duration_ms) -> raw lyrics | None`,
+  consumed by the MA Client service and parsed by the same LRC parser used for
+  MA-provided lyrics.
+- **Depends on:** aiohttp, the public LRCLIB API (`https://lrclib.net`, no key).
+- **Notes:** Off path entirely when the setting is disabled; failures degrade to
+  "no lyrics found".
 
 ## Screens
 

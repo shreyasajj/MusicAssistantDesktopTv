@@ -13,7 +13,7 @@
 - Target platform: Plasma Bigscreen (Wayland), TV / 10-foot UI — large fonts, large artwork, high contrast, focus-navigable by remote **and** keyboard.
 - Minimum Music Assistant server version: **2.6** (first version exposing lyrics). Pin and document this.
 - Music Assistant connection is **direct to the server WebSocket** (`ws://<host>:8095/ws`); no Home Assistant dependency. Host/port/token come from settings; token is optional.
-- Lyrics come **only** from Music Assistant's own track metadata (synced LRC when available). Do not call LRCLIB or any other lyrics source directly.
+- Lyrics: **primary source is Music Assistant's own track metadata** (synced LRC when available). When MA returns no lyrics **and** the `lrclib_fallback` setting is on (default **on**), query LRCLIB directly as a fallback. No other lyrics sources.
 - Guest songs go **straight to the active player's queue** — no host-approval step in v1.
 - Layout is **separate tabbed full screens**: Now Playing · Search · Lyrics · Visualizer.
 - Player targeting: a **configured default player, switchable on screen** via a player picker. Guest additions go to the active player's queue.
@@ -34,6 +34,7 @@ music_assistant_desktop_linux/
     __main__.py                       # entry point: QApplication + qasync + load QML
     config.py                         # Settings load/save (JSON in XDG config dir)
     lyrics.py                         # LRC parse + current-line selection (pure logic)
+    lrclib.py                         # LRCLIB fallback fetch (when MA has no lyrics)
     ma_client.py                      # MaClient QObject: WS connect, state, actions
     audio_analysis.py                 # AudioAnalyzer QObject: PipeWire capture + FFT
     guest_server.py                   # GuestServer: aiohttp app, search/add endpoints
@@ -54,6 +55,7 @@ music_assistant_desktop_linux/
   tests/
     test_config.py
     test_lyrics.py
+    test_lrclib.py
     test_ma_client.py
     test_audio_analysis.py
     test_guest_server.py
@@ -325,7 +327,7 @@ git commit -m "feat: static HTML mockups of all screens (visual design reference
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
-  - `@dataclass Settings(ma_host: str = "localhost", ma_port: int = 8095, ma_token: str = "", default_player_id: str = "", guest_port: int = 8950)`
+  - `@dataclass Settings(ma_host: str = "localhost", ma_port: int = 8095, ma_token: str = "", default_player_id: str = "", guest_port: int = 8950, lrclib_fallback: bool = True)`
   - `load_settings(path: Path) -> Settings` — returns defaults if file missing.
   - `save_settings(settings: Settings, path: Path) -> None` — writes JSON, creating parent dirs.
   - `default_config_path() -> Path` — `$XDG_CONFIG_HOME/bigscreen-jukebox/settings.json` (fallback `~/.config/...`).
@@ -341,6 +343,7 @@ def test_load_missing_returns_defaults(tmp_path):
     s = load_settings(tmp_path / "nope.json")
     assert s == Settings()
     assert s.ma_port == 8095 and s.guest_port == 8950
+    assert s.lrclib_fallback is True
 
 def test_save_then_load_roundtrip(tmp_path):
     p = tmp_path / "sub" / "settings.json"
@@ -372,6 +375,7 @@ class Settings:
     ma_token: str = ""
     default_player_id: str = ""
     guest_port: int = 8950
+    lrclib_fallback: bool = True
 
 def default_config_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
@@ -1888,8 +1892,250 @@ git commit -m "feat: settings screen and Bigscreen launcher packaging"
 
 ---
 
+## Task 16: LRCLIB lyrics fallback (when Music Assistant has none)
+
+**Files:**
+- Create: `src/bigscreen_jukebox/lrclib.py`, `tests/test_lrclib.py`
+- Modify: `src/bigscreen_jukebox/ma_client.py`, `tests/test_ma_client.py`, `src/bigscreen_jukebox/__main__.py`, `qml/SettingsView.qml`
+
+**Interfaces:**
+- Consumes: `parse_lyrics` (Task 4); `MaClient` (Tasks 5–6); `Settings.lrclib_fallback` (Task 3); the live asyncio loop (Task 14); the settings UI (Task 15).
+- Produces:
+  - `lrclib.py`: `build_params(artist, title, album, duration_ms) -> dict`, `select_lyrics(data: dict | None) -> str | None`, and `async fetch_lyrics(session, artist, title, album="", duration_ms=0) -> str | None`.
+  - On `MaClient`: `async resolve_lyrics_if_missing(fetcher) -> None`, where `fetcher` is an async callable `(artist, title, album, duration_ms) -> str | None`. If `lrclib_fallback` is on and the current lyrics are empty, it fetches, parses, and updates `lyricsJson`.
+  - Settings UI gains an LRCLIB fallback toggle; `SettingsController.save` signature gains a trailing `bool`.
+
+- [ ] **Step 1: Write the failing test for the LRCLIB module**
+
+```python
+# tests/test_lrclib.py
+from bigscreen_jukebox.lrclib import build_params, select_lyrics, fetch_lyrics
+
+def test_build_params_includes_duration_seconds():
+    p = build_params("M83", "Midnight City", "Hurry Up", 243000)
+    assert p == {"artist_name": "M83", "track_name": "Midnight City",
+                 "album_name": "Hurry Up", "duration": 243}
+
+def test_build_params_omits_empty_album_and_duration():
+    p = build_params("A", "B", "", 0)
+    assert p == {"artist_name": "A", "track_name": "B"}
+
+def test_select_prefers_synced():
+    assert select_lyrics({"syncedLyrics": "[00:01.00]hi", "plainLyrics": "hi"}) == "[00:01.00]hi"
+
+def test_select_falls_back_to_plain():
+    assert select_lyrics({"syncedLyrics": "", "plainLyrics": "just words"}) == "just words"
+
+def test_select_none_when_empty():
+    assert select_lyrics(None) is None
+    assert select_lyrics({"syncedLyrics": "", "plainLyrics": ""}) is None
+
+class _FakeResp:
+    def __init__(self, status, payload): self.status = status; self._p = payload
+    async def __aenter__(self): return self
+    async def __aexit__(self, *a): return False
+    async def json(self): return self._p
+
+class _FakeSession:
+    def __init__(self, status, payload): self._s = status; self._p = payload; self.last_params = None
+    def get(self, url, params=None):
+        self.last_params = params
+        return _FakeResp(self._s, self._p)
+
+async def test_fetch_returns_synced_and_sends_params():
+    sess = _FakeSession(200, {"syncedLyrics": "[00:01.00]hi", "plainLyrics": "hi"})
+    out = await fetch_lyrics(sess, "M83", "Midnight City", "Hurry Up", 243000)
+    assert out == "[00:01.00]hi"
+    assert sess.last_params["duration"] == 243
+
+async def test_fetch_404_returns_none():
+    assert await fetch_lyrics(_FakeSession(404, {}), "A", "B") is None
+
+async def test_fetch_requires_artist_and_title():
+    assert await fetch_lyrics(_FakeSession(200, {}), "", "B") is None
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_lrclib.py -v`
+Expected: FAIL — `ModuleNotFoundError: bigscreen_jukebox.lrclib`
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+# src/bigscreen_jukebox/lrclib.py
+from __future__ import annotations
+
+LRCLIB_GET = "https://lrclib.net/api/get"
+
+def build_params(artist: str, title: str, album: str, duration_ms: int) -> dict:
+    params = {"artist_name": artist, "track_name": title}
+    if album:
+        params["album_name"] = album
+    if duration_ms:
+        params["duration"] = round(duration_ms / 1000)
+    return params
+
+def select_lyrics(data: dict | None) -> str | None:
+    if not data:
+        return None
+    synced = data.get("syncedLyrics")
+    if synced:
+        return synced
+    plain = data.get("plainLyrics")
+    return plain or None
+
+async def fetch_lyrics(session, artist: str, title: str,
+                       album: str = "", duration_ms: int = 0) -> str | None:
+    if not artist or not title:
+        return None
+    try:
+        async with session.get(LRCLIB_GET, params=build_params(artist, title, album, duration_ms)) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json()
+    except Exception:
+        return None
+    return select_lyrics(data)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_lrclib.py -v`
+Expected: PASS (8 tests)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/bigscreen_jukebox/lrclib.py tests/test_lrclib.py
+git commit -m "feat: LRCLIB lyrics fetch (build params, select, fetch)"
+```
+
+- [ ] **Step 6: Write the failing test for the MaClient fallback hook (add to tests/test_ma_client.py)**
+
+```python
+async def test_resolve_fills_lyrics_when_missing(client):
+    client.update_from_player_state({"player_id": "x",
+        "current_media": {"title": "T", "artist": "A"}})
+    assert json.loads(client.lyricsJson)["lines"] == []
+    async def fake(artist, title, album, dur): return "[00:01.00]hi"
+    await client.resolve_lyrics_if_missing(fake)
+    assert json.loads(client.lyricsJson)["lines"][0]["text"] == "hi"
+
+async def test_resolve_skips_when_lyrics_present(client):
+    client.update_from_player_state({"player_id": "x",
+        "current_media": {"title": "T", "artist": "A", "lyrics": "[00:01.00]x"}})
+    called = False
+    async def fake(*a):
+        nonlocal called; called = True; return "[00:02.00]y"
+    await client.resolve_lyrics_if_missing(fake)
+    assert called is False
+
+async def test_resolve_disabled_by_setting():
+    from bigscreen_jukebox.ma_client import MaClient
+    from bigscreen_jukebox.config import Settings
+    c = MaClient(Settings(lrclib_fallback=False))
+    c.update_from_player_state({"player_id": "x", "current_media": {"title": "T", "artist": "A"}})
+    async def fake(*a): return "[00:01.00]hi"
+    await c.resolve_lyrics_if_missing(fake)
+    assert json.loads(c.lyricsJson)["lines"] == []
+```
+
+- [ ] **Step 7: Run test to verify it fails**
+
+Run: `pytest tests/test_ma_client.py::test_resolve_fills_lyrics_when_missing -v`
+Expected: FAIL — `AttributeError: 'MaClient' object has no attribute 'resolve_lyrics_if_missing'`
+
+- [ ] **Step 8: Implement the fallback hook (add to ma_client.py)**
+
+```python
+    async def resolve_lyrics_if_missing(self, fetcher) -> None:
+        """If lyrics are empty and the LRCLIB fallback is enabled, fetch via
+        `fetcher(artist, title, album, duration_ms) -> str | None`, parse, and update."""
+        if not self._settings.lrclib_fallback:
+            return
+        if json.loads(self._lyrics_json)["lines"]:
+            return
+        raw = await fetcher(self._artist, self._title, self._album, self._dur)
+        if raw:
+            self._lyrics_json = json.dumps(asdict(parse_lyrics(raw)))
+            self.lyricsJsonChanged.emit()
+```
+
+- [ ] **Step 9: Run test to verify it passes**
+
+Run: `pytest tests/test_ma_client.py -v`
+Expected: PASS (all tests including the 3 new ones)
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/bigscreen_jukebox/ma_client.py tests/test_ma_client.py
+git commit -m "feat: MaClient LRCLIB fallback hook for missing lyrics"
+```
+
+- [ ] **Step 11: Wire the fallback into the live loop (edit __main__.py)**
+
+In the `startup()` coroutine (added in Task 14), create one shared HTTP session and trigger a resolve whenever the track changes:
+
+```python
+    import aiohttp
+    from . import lrclib
+
+    # inside startup(), after await ma.connect():
+    http = aiohttp.ClientSession()
+    async def fetcher(artist, title, album, duration_ms):
+        return await lrclib.fetch_lyrics(http, artist, title, album, duration_ms)
+    ma.nowPlayingChanged.connect(
+        lambda: asyncio.ensure_future(ma.resolve_lyrics_if_missing(fetcher)))
+```
+
+- [ ] **Step 12: Add the settings toggle (edit __main__.py and SettingsView.qml)**
+
+Change `SettingsController.save` (from Task 15) to carry the toggle:
+
+```python
+    @Slot(str, int, str, int, bool)
+    def save(self, host, port, token, guest_port, lrclib_fallback):
+        self._s.ma_host = host; self._s.ma_port = port
+        self._s.ma_token = token; self._s.guest_port = guest_port
+        self._s.lrclib_fallback = lrclib_fallback
+        save_settings(self._s, default_config_path())
+```
+
+In `qml/SettingsView.qml`, add a switch above the Save button and pass it through:
+
+```qml
+        Switch {
+            id: lrclib
+            text: "Fetch lyrics from LRCLIB when Music Assistant has none"
+            checked: true
+            font.pixelSize: Theme.md
+        }
+        Button {
+            text: "Save"; font.pixelSize: Theme.md
+            onClicked: settingsController.save(host.text, parseInt(port.text),
+                       token.text, parseInt(gport.text), lrclib.checked)
+        }
+```
+
+(Replace the existing Save `Button` from Task 15 with this Switch + Button pair.)
+
+- [ ] **Step 13: Run the app and verify**
+
+Run: `python -m bigscreen_jukebox` against a real MA server. Play a track that MA has **no** lyrics for but LRCLIB does → the Lyrics screen fills in (synced if LRCLIB has timing). Toggle the setting off in Settings, Save, replay → Lyrics shows "No lyrics found". Confirm `settings.json` records `"lrclib_fallback": false`.
+
+- [ ] **Step 14: Commit**
+
+```bash
+git add src/bigscreen_jukebox/__main__.py qml/SettingsView.qml
+git commit -m "feat: wire LRCLIB fallback into live loop and settings toggle"
+```
+
+---
+
 ## Self-Review notes (covered)
 
-- **Spec coverage:** native QML/Kirigami (T10–T15), direct MA WS (T5–T6, T14), PipeWire+FFT visualizer (T7, T13), MA-sourced synced lyrics (T4, T12), guest QR→phone→queue with top-right toggle (T8–T9, T13–T14), tabbed screens (T10), default+switchable player (T5, T11), full transport (T6, T11), straight-to-queue guest add (T9), settings (T3, T15), 10-foot styling + visual mockups (T2, T10).
+- **Spec coverage:** native QML/Kirigami (T10–T15), direct MA WS (T5–T6, T14), PipeWire+FFT visualizer (T7, T13), MA-sourced synced lyrics with toggleable LRCLIB fallback (T4, T12, T16), guest QR→phone→queue with top-right toggle (T8–T9, T13–T14), tabbed screens (T10), default+switchable player (T5, T11), full transport (T6, T11), straight-to-queue guest add (T9), settings incl. lyrics-fallback toggle (T3, T15, T16), 10-foot styling + visual mockups (T2, T10).
 - **Deferred unknowns** from the spec's Open Questions are all resolved against a real server in **Task 14, Step 6**, with the exact mapping points called out (MA state schema, command names, client import, lyrics field, PipeWire source). Each is isolated to one place so a single edit fixes it.
 - **Type consistency:** property/method names (`update_from_player_state`, `searchResults`, `addToQueue`/`addToQueue_async`, `lyricsJson`, `analyze`/`push`, `qr_data_uri`, `GuestServer(search_fn, add_fn, port)`) are used identically across producing and consuming tasks.
