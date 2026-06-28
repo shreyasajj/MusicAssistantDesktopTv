@@ -1720,7 +1720,7 @@ git commit -m "feat: fullscreen visualizer and toggleable guest overlay"
 
 ---
 
-## Task 14: Live integration — asyncio loop, MA connect, audio + guest start/stop
+## Task 14: Live integration — asyncio loop, MA connect, audio + guest start/stop ✅ DONE (commit f6561d2)
 
 **Files:**
 - Modify: `src/bigscreen_jukebox/__main__.py`, `src/bigscreen_jukebox/guest_server.py` (add LAN-IP helper)
