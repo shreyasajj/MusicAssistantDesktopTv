@@ -2,8 +2,9 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from dataclasses import asdict
-from PySide6.QtCore import QObject, Signal, Property, Slot
+from PySide6.QtCore import QObject, Signal, Property, Slot, QTimer
 from .config import Settings
 from .lyrics import parse_lyrics
 
@@ -46,7 +47,8 @@ class MaClient(QObject):
         self._players: list[dict] = []
         self._active = settings.default_player_id
         self._title = self._artist = self._album = self._art = ""
-        self._pos = 0
+        self._pos = 0            # snapshot position in ms
+        self._pos_last = 0.0     # epoch (s) the snapshot was taken; 0 = no live correction
         self._dur = 0
         self._playing = False
         self._volume = 0
@@ -54,6 +56,14 @@ class MaClient(QObject):
         self._lyrics_json = json.dumps({"lines": [], "synced": False})
         self._search_results: list[dict] = []
         self._session = None
+        self._pos_timer = None
+
+    def _position_ms(self) -> int:
+        # MA sends a position snapshot + the wall-clock time it was taken; while
+        # playing, the live position is the snapshot plus elapsed real time.
+        if self._playing and self._pos_last:
+            return int(self._pos + max(0.0, time.time() - self._pos_last) * 1000)
+        return int(self._pos)
 
     def update_from_player_state(self, state: dict) -> None:
         media = state.get("current_media") or {}
@@ -161,6 +171,12 @@ class MaClient(QObject):
         except asyncio.TimeoutError:
             pass
         self._session.subscribe(self._on_event)
+        # Tick the progress position between MA's (infrequent) time updates.
+        if self._pos_timer is None:
+            self._pos_timer = QTimer(self)
+            self._pos_timer.setInterval(500)
+            self._pos_timer.timeout.connect(self._tick_position)
+            self._pos_timer.start()
         self._reload_players()
         if not self._active and self._players:
             self.select_player(self._players[0]["id"])
@@ -176,6 +192,10 @@ class MaClient(QObject):
             self._refresh()
             if name in ("QUEUE_ADDED", "QUEUE_ITEMS_UPDATED"):
                 self._spawn(self._reload_queue_items())
+
+    def _tick_position(self):
+        if self._playing and self._pos_last:
+            self.positionMsChanged.emit()
 
     def _reload_players(self):
         if not self._session:
@@ -208,10 +228,13 @@ class MaClient(QObject):
             self._volume = int(p.volume_level or 0)
         if q is not None and q.elapsed_time is not None:
             self._pos = int(q.elapsed_time * 1000)
+            self._pos_last = getattr(q, "elapsed_time_last_updated", 0.0) or time.time()
         elif cm is not None and getattr(cm, "elapsed_time", None) is not None:
             self._pos = int(cm.elapsed_time * 1000)
+            self._pos_last = getattr(cm, "elapsed_time_last_updated", 0.0) or time.time()
         else:
             self._pos = 0
+            self._pos_last = 0.0
         # MA PlayerMedia carries no lyrics; clear on track change so the LRCLIB
         # fallback (if enabled) re-fetches for the new track.
         if track_changed:
@@ -290,6 +313,9 @@ class MaClient(QObject):
             self.lyricsJsonChanged.emit()
 
     async def disconnect(self):
+        if self._pos_timer is not None:
+            self._pos_timer.stop()
+            self._pos_timer = None
         if self._session is not None:
             await self._session.disconnect()
             self._session = None
@@ -303,7 +329,7 @@ class MaClient(QObject):
     trackArtist = Property(str, lambda s: s._artist, notify=nowPlayingChanged)
     trackAlbum = Property(str, lambda s: s._album, notify=nowPlayingChanged)
     artUrl = Property(str, lambda s: s._art, notify=nowPlayingChanged)
-    positionMs = Property(int, lambda s: s._pos, notify=positionMsChanged)
+    positionMs = Property(int, lambda s: s._position_ms(), notify=positionMsChanged)
     durationMs = Property(int, lambda s: s._dur, notify=nowPlayingChanged)
     isPlaying = Property(bool, lambda s: s._playing, notify=isPlayingChanged)
     volume = Property(int, lambda s: s._volume, notify=volumeChanged)
