@@ -34,8 +34,13 @@ jobs:
       - name: Install project and PyInstaller
         run: |
           python -m pip install --upgrade pip
-          pip install .
+          pip install ".[dev]"
           pip install pyinstaller
+
+      - name: Run tests
+        # The suite mocks Music Assistant entirely (no live server / LAN access),
+        # so it runs on GitHub's runners and gates the release on green tests.
+        run: QT_QPA_PLATFORM=offscreen pytest -q
 
       - name: Build with PyInstaller
         run: |

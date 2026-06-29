@@ -53,6 +53,7 @@ class MaClient(QObject):
         self._playing = False
         self._volume = 0
         self._queue: list[dict] = []
+        self._queue_count = 0    # total upcoming songs (may exceed the fetched list)
         self._cur_index = None   # active queue index; up-next is reloaded when it changes
         self._lyrics_json = json.dumps({"lines": [], "synced": False})
         self._search_results: list[dict] = []
@@ -256,12 +257,16 @@ class MaClient(QObject):
             return
         try:
             q = self._session.player_queues.get(self._active)
-            start = (q.current_index + 1) if (q and q.current_index is not None) else 0
+            cur = q.current_index if (q and q.current_index is not None) else -1
+            total = int(getattr(q, "items", 0) or 0)
+            start = cur + 1
             items = await self._session.player_queues.get_queue_items(
-                self._active, limit=10, offset=start)
+                self._active, limit=100, offset=start)
         except Exception:
             return
         self._queue = [self._queue_item_dict(it) for it in (items or [])]
+        # True upcoming count comes from the queue total, not the fetched slice.
+        self._queue_count = max(len(self._queue), max(0, total - start))
         self.queueChanged.emit()
 
     def _queue_item_dict(self, it) -> dict:
@@ -341,5 +346,6 @@ class MaClient(QObject):
     isPlaying = Property(bool, lambda s: s._playing, notify=isPlayingChanged)
     volume = Property(int, lambda s: s._volume, notify=volumeChanged)
     queue = Property("QVariantList", lambda s: s._queue, notify=queueChanged)
+    queueCount = Property(int, lambda s: s._queue_count, notify=queueChanged)
     lyricsJson = Property(str, lambda s: s._lyrics_json, notify=lyricsJsonChanged)
     searchResults = Property("QVariantList", lambda s: s._search_results, notify=searchResultsChanged)

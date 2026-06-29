@@ -165,6 +165,24 @@ async def test_refresh_reloads_upnext_when_index_changes(client):
     await asyncio.sleep(0)
     assert len(reloads) == 2          # Up Next refreshed on the index change
 
+async def test_reload_queue_reports_true_upcoming_count(client):
+    class _Item:
+        def __init__(self, n): self.name = n; self.duration = 180; self.media_item = None
+    class _Q:
+        current_index = 3; items = 15      # 15 in queue, playing #3 -> 11 upcoming
+    class _Queues:
+        def get(self, qid): return _Q()
+        async def get_queue_items(self, qid, limit=100, offset=0):
+            return [_Item(f"t{i}") for i in range(max(0, min(limit, 15 - offset)))]
+    class _Session:
+        player_queues = _Queues()
+        def get_media_item_image_url(self, it): return ""
+    client._session = _Session()
+    client._active = "p"
+    await client._reload_queue_items()
+    assert client.queueCount == 11          # not capped at the old limit of 10
+    assert client.queue[0]["title"] == "t0"
+
 async def test_search_slot_populates_results(client):
     class _Artist:
         name = "A"

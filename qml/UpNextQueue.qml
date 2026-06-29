@@ -41,7 +41,7 @@ Rectangle {
             Text {
                 anchors.right: parent.right
                 anchors.baseline: parent.bottom
-                text: maClient.queue.length + (maClient.queue.length === 1 ? " song" : " songs")
+                text: maClient.queueCount + (maClient.queueCount === 1 ? " song" : " songs")
                 color: Qt.rgba(1, 1, 1, 0.5)
                 font.pixelSize: 19
                 font.weight: Font.DemiBold
