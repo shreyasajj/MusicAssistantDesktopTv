@@ -136,6 +136,35 @@ async def test_resolve_disabled_by_setting():
     await c.resolve_lyrics_if_missing(fake)
     assert json.loads(c.lyricsJson)["lines"] == []
 
+async def test_refresh_reloads_upnext_when_index_changes(client):
+    reloads = []
+    async def fake_reload(): reloads.append(1)
+    client._reload_queue_items = fake_reload
+
+    class _P:
+        current_media = None; playback_state = "playing"; volume_level = 50
+    class _Q:
+        elapsed_time = 0.0; elapsed_time_last_updated = 0.0; current_index = 0
+    class _Players:
+        def get(self, pid): return _P()
+    class _Queues:
+        def get(self, pid): return _Q()
+    class _Session:
+        players = _Players(); player_queues = _Queues()
+    client._session = _Session()
+    client._active = "p"
+
+    client._refresh()                 # index 0 (was None) -> reload
+    await asyncio.sleep(0)
+    assert len(reloads) == 1
+    client._refresh()                 # same index -> no extra reload
+    await asyncio.sleep(0)
+    assert len(reloads) == 1
+    _Q.current_index = 1              # track advanced
+    client._refresh()
+    await asyncio.sleep(0)
+    assert len(reloads) == 2          # Up Next refreshed on the index change
+
 async def test_search_slot_populates_results(client):
     class _Artist:
         name = "A"

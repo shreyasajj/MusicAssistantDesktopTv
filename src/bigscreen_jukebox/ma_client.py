@@ -53,6 +53,7 @@ class MaClient(QObject):
         self._playing = False
         self._volume = 0
         self._queue: list[dict] = []
+        self._cur_index = None   # active queue index; up-next is reloaded when it changes
         self._lyrics_json = json.dumps({"lines": [], "synced": False})
         self._search_results: list[dict] = []
         self._session = None
@@ -240,6 +241,12 @@ class MaClient(QObject):
         if track_changed:
             self._lyrics_json = json.dumps({"lines": [], "synced": False})
             self.lyricsJsonChanged.emit()
+        # The queue items list doesn't change when a track advances — only the
+        # current index does — so refresh Up Next whenever that pointer moves.
+        idx = getattr(q, "current_index", None) if q is not None else None
+        if idx != self._cur_index:
+            self._cur_index = idx
+            self._spawn(self._reload_queue_items())
         for sig in (self.nowPlayingChanged, self.positionMsChanged,
                     self.isPlayingChanged, self.volumeChanged):
             sig.emit()
