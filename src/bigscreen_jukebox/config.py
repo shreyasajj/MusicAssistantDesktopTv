@@ -11,6 +11,11 @@ class Settings:
     default_player_id: str = ""
     guest_port: int = 8950
     lrclib_fallback: bool = True
+    # UI options
+    compact_lyrics: bool = True       # show only prev/active/next-2 lyric lines
+    art_pump: bool = True             # pump the now-playing art with the bass
+    viz_behind_lyrics: bool = False   # render the visualizer behind the lyrics
+    audio_device: str = ""            # capture device for the visualizer ("" = auto)
 
 def default_config_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")

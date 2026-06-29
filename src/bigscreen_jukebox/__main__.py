@@ -65,13 +65,24 @@ class SettingsController(QObject):
         super().__init__()
         self._s = settings
 
-    @Slot(str, int, str, int, bool)
-    def save(self, host, port, token, guest_port, lrclib_fallback):
+    @Slot(str, int, str, int, bool, bool, bool, bool)
+    def save(self, host, port, token, guest_port, lrclib_fallback,
+             compact_lyrics, art_pump, viz_behind_lyrics):
         self._s.ma_host = host
         self._s.ma_port = port
         self._s.ma_token = token
         self._s.guest_port = guest_port
         self._s.lrclib_fallback = lrclib_fallback
+        self._s.compact_lyrics = compact_lyrics
+        self._s.art_pump = art_pump
+        self._s.viz_behind_lyrics = viz_behind_lyrics
+        save_settings(self._s, default_config_path())
+        self.changed.emit()
+
+    @Slot(bool)
+    def setVizBehindLyrics(self, enabled):
+        # Live toggle from the Visualizer screen; persists immediately.
+        self._s.viz_behind_lyrics = enabled
         save_settings(self._s, default_config_path())
         self.changed.emit()
 
@@ -82,6 +93,9 @@ class SettingsController(QObject):
     token = Property(str, lambda s: s._s.ma_token, notify=changed)
     guestPort = Property(int, lambda s: s._s.guest_port, notify=changed)
     lrclibFallback = Property(bool, lambda s: s._s.lrclib_fallback, notify=changed)
+    compactLyrics = Property(bool, lambda s: s._s.compact_lyrics, notify=changed)
+    artPump = Property(bool, lambda s: s._s.art_pump, notify=changed)
+    vizBehindLyrics = Property(bool, lambda s: s._s.viz_behind_lyrics, notify=changed)
 
 
 def main() -> int:
@@ -101,7 +115,7 @@ def main() -> int:
 
     settings = load_settings(default_config_path())
     ma = MaClient(settings)
-    analyzer = AudioAnalyzer()
+    analyzer = AudioAnalyzer(device=settings.audio_device or None)
     guest = GuestController(ma, settings)
 
     engine = QQmlApplicationEngine()

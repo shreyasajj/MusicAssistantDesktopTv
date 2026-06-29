@@ -49,3 +49,26 @@ def test_push_updates_properties_and_signal():
     assert len(a.bars) == 64
     assert a.energy >= 0.0
     assert len(seen) == 1
+
+class _FakeSd:
+    def __init__(self, devices): self._devices = devices
+    def query_devices(self): return self._devices
+
+def test_resolve_device_prefers_monitor_source():
+    a = AudioAnalyzer()
+    sd = _FakeSd([
+        {"name": "Built-in Microphone", "max_input_channels": 1},
+        {"name": "Built-in Output", "max_input_channels": 0},
+        {"name": "alsa_output.pci.analog-stereo.monitor", "max_input_channels": 2},
+    ])
+    assert a._resolve_device(sd) == 2
+
+def test_resolve_device_falls_back_to_default_when_no_monitor():
+    a = AudioAnalyzer()
+    sd = _FakeSd([{"name": "Mic", "max_input_channels": 1}])
+    assert a._resolve_device(sd) is None
+
+def test_resolve_device_explicit_override_wins():
+    a = AudioAnalyzer(device="my-device")
+    sd = _FakeSd([{"name": "something.monitor", "max_input_channels": 2}])
+    assert a._resolve_device(sd) == "my-device"

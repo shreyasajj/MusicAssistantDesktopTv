@@ -6,13 +6,30 @@ class AudioAnalyzer(QObject):
     bandsChanged = Signal()
     NBARS = 64
 
-    def __init__(self):
+    def __init__(self, device=None):
         super().__init__()
         self._energy = 0.0
         self._beat = 0.0
         self._level = 0.0
         self._bars = [0.0] * self.NBARS
         self._avg_bass = 0.0
+        self._device = device      # explicit capture device (index or name), or None=auto
+        self._sr = 48000
+
+    def _resolve_device(self, sd):
+        """Pick the capture device. An explicit override wins; otherwise prefer a
+        PipeWire/Pulse *monitor* source so the visualizer reacts to what's playing
+        rather than the microphone. Falls back to the default input."""
+        if self._device not in (None, ""):
+            return self._device
+        try:
+            for i, d in enumerate(sd.query_devices()):
+                name = (d.get("name") or "").lower()
+                if d.get("max_input_channels", 0) > 0 and "monitor" in name:
+                    return i
+        except Exception:
+            pass
+        return None
 
     def analyze(self, samples: np.ndarray, sample_rate: int = 48000) -> dict:
         x = np.asarray(samples, dtype=np.float32)
@@ -46,13 +63,32 @@ class AudioAnalyzer(QObject):
 
     def start(self) -> None:
         try:
-            import sounddevice as sd  # PipeWire monitor source; device chosen in Task 14
+            import sounddevice as sd  # PortAudio; on Linux this reaches PipeWire/Pulse
         except ImportError:
+            print("[warn] sounddevice not installed; visualizer will use simulation")
             return
-        self._stream = sd.InputStream(
-            channels=1, samplerate=48000, blocksize=2048,
-            callback=lambda indata, frames, t, status: self.push(indata[:, 0], 48000))
-        self._stream.start()
+        device = self._resolve_device(sd)
+
+        def _cb(indata, frames, t, status):
+            self.push(indata[:, 0], self._sr)
+
+        # Try the device's native rate first, then let PortAudio choose.
+        for sr in (48000, None):
+            try:
+                kwargs = dict(channels=1, blocksize=2048, callback=_cb)
+                if device is not None:
+                    kwargs["device"] = device
+                if sr is not None:
+                    kwargs["samplerate"] = sr
+                stream = sd.InputStream(**kwargs)
+                self._sr = int(stream.samplerate)
+                stream.start()
+                self._stream = stream
+                print(f"[info] visualizer audio capture: device={device!r} rate={self._sr}")
+                return
+            except Exception as e:
+                print(f"[warn] audio capture failed (device={device!r}, rate={sr}): {e}")
+        print("[warn] no audio capture device; visualizer will use simulation")
 
     def stop(self) -> None:
         s = getattr(self, "_stream", None)

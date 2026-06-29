@@ -42,19 +42,30 @@ Item {
         Field { id: token; placeholderText: "MA token (optional)"; text: settingsController.token; echoMode: TextInput.PasswordEchoOnEdit }
         Field { id: gport; placeholderText: "Guest port"; text: String(settingsController.guestPort) }
 
-        RowLayout {
+        component OptionToggle: RowLayout {
+            property alias checked: sw.checked
+            property string label: ""
             Layout.topMargin: 4
             Layout.fillWidth: true
             spacing: 16
-            Switch { id: lrclibSwitch; checked: settingsController.lrclibFallback }
+            Switch { id: sw }
             Text {
-                text: "Fetch lyrics from LRCLIB when Music Assistant has none"
+                text: parent.label
                 color: Theme.fg
                 font.pixelSize: Theme.sm
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
             }
         }
+
+        OptionToggle { id: lrclibSwitch; checked: settingsController.lrclibFallback
+            label: "Fetch lyrics from LRCLIB when Music Assistant has none" }
+        OptionToggle { id: compactSwitch; checked: settingsController.compactLyrics
+            label: "Compact lyrics — show only the previous, current and next two lines" }
+        OptionToggle { id: artPumpSwitch; checked: settingsController.artPump
+            label: "Pump the Now Playing artwork with the song's bass" }
+        OptionToggle { id: behindSwitch; checked: settingsController.vizBehindLyrics
+            label: "Show the visualizer behind the lyrics" }
 
         Button {
             id: saveBtn
@@ -81,7 +92,8 @@ Item {
             }
             onClicked: settingsController.save(host.text, parseInt(port.text) || 0,
                                                token.text, parseInt(gport.text) || 0,
-                                               lrclibSwitch.checked)
+                                               lrclibSwitch.checked, compactSwitch.checked,
+                                               artPumpSwitch.checked, behindSwitch.checked)
         }
     }
 }

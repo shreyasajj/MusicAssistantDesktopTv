@@ -1,1 +1,2 @@
 singleton Theme 1.0 Theme.qml
+singleton VizState 1.0 VizState.qml

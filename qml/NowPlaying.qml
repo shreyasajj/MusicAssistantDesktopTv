@@ -60,6 +60,12 @@ Item {
         width: 560
         height: 560
 
+        // Option: pump the art with the song's bass (audioAnalyzer.level spikes
+        // on each beat). Eases back smoothly between hits.
+        transformOrigin: Item.Center
+        scale: settingsController.artPump ? (1 + Math.min(0.09, audioAnalyzer.level * 0.08)) : 1.0
+        Behavior on scale { NumberAnimation { duration: 90; easing.type: Easing.OutQuad } }
+
         Rectangle {
             id: artFrame
             anchors.fill: parent
