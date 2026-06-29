@@ -123,12 +123,23 @@ Item {
         }
     }
 
-    // empty state
-    Text {
+    // empty state — make it obvious it's just instrumental, not a load failure
+    Column {
         anchors.centerIn: parent
         visible: root.count === 0
-        text: "No lyrics found"
-        color: Qt.rgba(1, 1, 1, 0.4)
-        font.pixelSize: Theme.xl
+        spacing: 16
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "🎵"
+            font.pixelSize: 150
+            horizontalAlignment: Text.AlignHCenter
+        }
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "Just the music — no lyrics"
+            color: Qt.rgba(1, 1, 1, 0.5)
+            font.pixelSize: Theme.xl
+            font.weight: Font.DemiBold
+        }
     }
 }

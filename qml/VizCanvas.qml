@@ -105,8 +105,11 @@ Item {
             grd.addColorStop(1, "rgba(0,0,0,0)")
             ctx.fillStyle = grd
             ctx.beginPath(); ctx.arc(cx, cy, orbR * 1.7, 0, Math.PI * 2); ctx.fill()
-            ctx.fillStyle = "rgba(255,255,255,0.92)"
-            ctx.beginPath(); ctx.arc(cx, cy, orbR * 0.32, 0, Math.PI * 2); ctx.fill()
+            // The bright white center dot is distracting behind centered lyrics — skip it when dimmed.
+            if (!viz.dim) {
+                ctx.fillStyle = "rgba(255,255,255,0.92)"
+                ctx.beginPath(); ctx.arc(cx, cy, orbR * 0.32, 0, Math.PI * 2); ctx.fill()
+            }
         }
 
         function drawFlow(ctx, W, H, a) {
