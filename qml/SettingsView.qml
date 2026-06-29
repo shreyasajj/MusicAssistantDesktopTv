@@ -120,12 +120,26 @@ Item {
                     else if (v === "__auto__") currentIndex = 1
                     else { var i = model.indexOf(v); currentIndex = i >= 0 ? i : 0 }
                 }
-                // Up/Down navigate to other controls when the list is closed;
-                // Enter/Space opens it (then the popup handles Up/Down).
-                Keys.onUpPressed: function (e) { if (!popup.visible) { behindSwitch.control.forceActiveFocus(); e.accepted = true } }
-                Keys.onDownPressed: function (e) { if (!popup.visible) { saveBtn.forceActiveFocus(); e.accepted = true } }
-                Keys.onReturnPressed: function (e) { if (!popup.visible) { popup.open(); e.accepted = true } }
-                Keys.onSpacePressed: function (e) { if (!popup.visible) { popup.open(); e.accepted = true } }
+                // When the list is OPEN, pass keys through (accepted defaults to
+                // true, so we must explicitly release them) so the popup can
+                // navigate/select. When CLOSED, Up/Down move to other controls
+                // and Enter/Space opens the list.
+                Keys.onUpPressed: function (e) {
+                    if (popup.visible) e.accepted = false
+                    else { behindSwitch.control.forceActiveFocus(); e.accepted = true }
+                }
+                Keys.onDownPressed: function (e) {
+                    if (popup.visible) e.accepted = false
+                    else { saveBtn.forceActiveFocus(); e.accepted = true }
+                }
+                Keys.onReturnPressed: function (e) {
+                    if (popup.visible) e.accepted = false
+                    else { popup.open(); e.accepted = true }
+                }
+                Keys.onSpacePressed: function (e) {
+                    if (popup.visible) e.accepted = false
+                    else { popup.open(); e.accepted = true }
+                }
                 contentItem: Text {
                     leftPadding: 18; rightPadding: 44
                     text: deviceBox.displayText
