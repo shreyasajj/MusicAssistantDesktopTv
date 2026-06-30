@@ -14,6 +14,7 @@ ApplicationWindow {
 
     readonly property var tabs: ["Now Playing", "Search", "Lyrics", "Visualizer", "Settings"]
     readonly property int guestIdx: tabs.length            // topbar focus index of the guest button
+    readonly property int playerChipIdx: guestIdx + 1     // topbar focus index of the player chip (NP only)
     property bool guestOn: guestController.enabled
 
     // ── 1920x1080 stage, scaled & centered to the window (4K scaling) ──────────
@@ -28,10 +29,11 @@ ApplicationWindow {
         ]
 
         focus: true
-        // focusZone: "content" | "topbar";  topIdx: 0..tabs-1 = tabs, guestIdx = guest button
+        // focusZone: "content" | "topbar";  topIdx: 0..tabs-1 = tabs, guestIdx = guest, playerChipIdx = chip
         property string focusZone: "content"
         property int topIdx: 0
         property bool playerMenuOpen: false
+        property int playerMenuFocusIdx: 0   // D-pad cursor inside the open player menu
 
         function go(i) {
             stack.currentIndex = i
@@ -48,8 +50,22 @@ ApplicationWindow {
             stage.forceActiveFocus()
         }
         function activateTop() {
-            if (topIdx === win.guestIdx) guestController.toggle()
-            else go(topIdx)
+            if (topIdx === win.playerChipIdx) {
+                stage.playerMenuOpen = !stage.playerMenuOpen
+                if (stage.playerMenuOpen) {
+                    // Seed the D-pad cursor on the currently active player.
+                    var ps = maClient.players
+                    var aid = maClient.activePlayerId
+                    stage.playerMenuFocusIdx = 0
+                    for (var i = 0; i < ps.length; i++) {
+                        if (ps[i].id === aid) { stage.playerMenuFocusIdx = i; break }
+                    }
+                }
+            } else if (topIdx === win.guestIdx) {
+                guestController.toggle()
+            } else {
+                go(topIdx)
+            }
         }
 
         // ── Keyboard / TV-remote D-pad ─────────────────────────────────────────
@@ -57,9 +73,33 @@ ApplicationWindow {
             if (e.key === Qt.Key_G) { guestController.toggle(); e.accepted = true; return }
             if (e.key >= Qt.Key_1 && e.key <= Qt.Key_5) { go(e.key - Qt.Key_1); e.accepted = true; return }
 
+            // Player menu takes priority over all other navigation while open.
+            if (stage.playerMenuOpen) {
+                var ps = maClient.players
+                if (e.key === Qt.Key_Down) {
+                    stage.playerMenuFocusIdx = Math.min(ps.length - 1, stage.playerMenuFocusIdx + 1)
+                } else if (e.key === Qt.Key_Up) {
+                    if (stage.playerMenuFocusIdx > 0) stage.playerMenuFocusIdx--
+                    else stage.playerMenuOpen = false   // back to topbar chip focus
+                } else if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter || e.key === Qt.Key_Space) {
+                    if (stage.playerMenuFocusIdx >= 0 && stage.playerMenuFocusIdx < ps.length)
+                        maClient.select_player(ps[stage.playerMenuFocusIdx].id)
+                    stage.playerMenuOpen = false
+                } else if (e.key === Qt.Key_Escape || e.key === Qt.Key_Back) {
+                    stage.playerMenuOpen = false
+                }
+                e.accepted = true
+                return
+            }
+
             if (stage.focusZone === "topbar") {
                 if (e.key === Qt.Key_Left)  { stage.topIdx = Math.max(0, stage.topIdx - 1); e.accepted = true }
-                else if (e.key === Qt.Key_Right) { stage.topIdx = Math.min(win.guestIdx, stage.topIdx + 1); e.accepted = true }
+                else if (e.key === Qt.Key_Right) {
+                    // Chip is the last stop on Now Playing (not in guest mode); skip it on other tabs.
+                    var maxTop = (stack.currentIndex === 0 && !win.guestOn) ? win.playerChipIdx : win.guestIdx
+                    stage.topIdx = Math.min(maxTop, stage.topIdx + 1)
+                    e.accepted = true
+                }
                 else if (e.key === Qt.Key_Down)  {
                     stage.focusZone = "content"
                     if (stack.currentIndex === 1) Qt.callLater(searchScreen.focusInput)
@@ -127,8 +167,12 @@ ApplicationWindow {
             guestIdx: win.guestIdx
             guestOn: win.guestOn
             playerName: stage.activePlayerName()
+            chipFocused: stage.focusZone === "topbar" && stage.topIdx === win.playerChipIdx
             onTabActivated: function (index) { stage.go(index) }
-            onChipClicked: stage.playerMenuOpen = !stage.playerMenuOpen
+            onChipClicked: {
+                stage.playerMenuOpen = !stage.playerMenuOpen
+                if (stage.playerMenuOpen) stage.playerMenuFocusIdx = -1  // mouse mode: no D-pad highlight
+            }
             onGuestClicked: guestController.toggle()
         }
 
@@ -138,6 +182,7 @@ ApplicationWindow {
             z: 80
             open: stage.playerMenuOpen && stack.currentIndex === 0
             guestOn: win.guestOn
+            focusedIndex: stage.playerMenuFocusIdx
             anchors { top: topbar.bottom; topMargin: -8; right: parent.right; rightMargin: 64 }
             onRequestClose: stage.playerMenuOpen = false
         }

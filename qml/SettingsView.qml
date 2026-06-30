@@ -170,6 +170,10 @@ Item {
                     width: deviceBox.width
                     implicitHeight: Math.min(contentItem.implicitHeight + 12, 420)
                     padding: 6
+                    // Default closePolicy includes CloseOnReleaseOutside which causes the
+                    // popup to open and immediately close on a single click (the release
+                    // that opened it is seen as a release outside the popup).
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
                     contentItem: ListView {
                         clip: true
                         implicitHeight: contentHeight
