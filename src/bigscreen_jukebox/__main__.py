@@ -216,6 +216,23 @@ def main() -> int:
     if not engine.rootObjects():
         return 1
 
+    # Reconnect MA and restart the audio analyzer whenever settings are saved.
+    def _on_settings_changed():
+        asyncio.ensure_future(_reconnect_ma())
+
+    async def _reconnect_ma():
+        try:
+            await ma.disconnect_server()
+        except Exception as e:
+            print(f"[warn] MA disconnect: {e}")
+        try:
+            await ma.connect_server()
+        except Exception as e:
+            print(f"[warn] MA reconnect failed: {e}")
+        analyzer.restart(device=settings.audio_device)
+
+    settings_ctrl.changed.connect(_on_settings_changed)
+
     if use_qasync:
         async def startup():
             try:

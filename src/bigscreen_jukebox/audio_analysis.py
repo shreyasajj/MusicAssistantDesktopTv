@@ -106,6 +106,12 @@ class AudioAnalyzer(QObject):
         if s is not None:
             s.stop(); s.close(); self._stream = None
 
+    def restart(self, device: str) -> None:
+        self.stop()
+        self._device = device
+        self._simulated = device in (None, DEVICE_SIMULATED)
+        self.start()
+
     energy = Property(float, lambda s: s._energy, notify=bandsChanged)
     beat = Property(float, lambda s: s._beat, notify=bandsChanged)
     bass = Property(float, lambda s: s._bass, notify=bandsChanged)

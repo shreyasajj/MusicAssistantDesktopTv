@@ -6,6 +6,7 @@ Rectangle {
     id: menu
     property bool open: false
     property bool guestOn: false
+    property int focusedIndex: -1   // D-pad highlight; -1 = mouse-only mode
     signal requestClose()
 
     visible: open
@@ -27,12 +28,15 @@ Rectangle {
                 height: 56
                 radius: 12
                 property bool isActive: modelData.id === maClient.activePlayerId
-                color: isActive ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                property bool isFocused: menu.focusedIndex === index
+                color: isFocused   ? Qt.rgba(1, 1, 1, 0.14)
+                     : isActive    ? Qt.rgba(1, 1, 1, 0.08)
+                     : "transparent"
                 Text {
                     anchors { left: parent.left; leftMargin: 18; verticalCenter: parent.verticalCenter }
                     text: modelData.name || modelData.id
                     font.pixelSize: 23
-                    font.weight: isActive ? Font.Bold : Font.Medium
+                    font.weight: (isActive || isFocused) ? Font.Bold : Font.Medium
                     color: isActive ? Theme.a1 : Qt.rgba(1, 1, 1, 0.8)
                 }
                 MouseArea {

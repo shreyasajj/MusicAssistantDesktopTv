@@ -14,6 +14,7 @@ Item {
     property int guestIdx: 0
     property bool guestOn: false
     property string playerName: ""
+    property bool chipFocused: false   // true when D-pad focus is on the player chip
 
     signal tabActivated(int index)
     signal chipClicked()
@@ -112,8 +113,8 @@ Item {
             width: chipRow.implicitWidth + 44
             radius: 40
             color: Qt.rgba(1, 1, 1, 0.06)
-            border.color: Qt.rgba(1, 1, 1, 0.1)
-            border.width: 1
+            border.color: bar.chipFocused ? Theme.a1 : Qt.rgba(1, 1, 1, 0.1)
+            border.width: bar.chipFocused ? 3 : 1
             Row {
                 id: chipRow
                 anchors.centerIn: parent
